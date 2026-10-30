@@ -5,12 +5,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
+import joblib
+import pandas as pd
 import typer
 
+from ncm.baselines import majority, tfidf
 from ncm.build import build as build_splits
 from ncm.build import read_raw, write
 from ncm.collect import RAW, collect_day, days
 from ncm.pncp import PncpClient, new_http_client
+from ncm.results import RESULTS, build_report, record
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -56,3 +60,43 @@ def build(
     typer.echo(
         json.dumps({k: v for k, v in stats.__dict__.items() if k != "distribution"}, indent=1)
     )
+
+
+MODELS = Path("data/models")
+
+
+def _splits() -> tuple[dict[str, pd.DataFrame], list[str]]:
+    splits = {n: pd.read_parquet(DATASET / f"{n}.parquet") for n in ("train", "validation", "test")}
+    classes = json.loads((DATASET / "stats.json").read_text(encoding="utf-8"))["classes"]
+    return splits, classes
+
+
+@app.command("baselines")
+def baselines_command() -> None:
+    """Train the majority and TF-IDF baselines and write their scores to results/."""
+    splits, classes = _splits()
+    for fitted in (
+        majority(splits["train"]),
+        tfidf(splits["train"], splits["validation"], classes),
+    ):
+        document = record(
+            fitted.name,
+            fitted.predict,
+            splits,
+            classes,
+            {"params": fitted.params, "train_seconds": round(fitted.train_seconds, 1)},
+        )
+        typer.echo(
+            f"{fitted.name}: test macro-F1 {document['test']['macro_f1']:.3f}, "
+            f"accuracy {document['test']['accuracy']:.3f}"
+        )
+        if not isinstance(fitted.model, str):
+            MODELS.mkdir(parents=True, exist_ok=True)
+            joblib.dump(fitted.model, MODELS / f"{fitted.name}.joblib")
+
+
+@app.command()
+def report() -> None:
+    """Write results/REPORT.md from every model's scores."""
+    (RESULTS / "REPORT.md").write_text(build_report(), encoding="utf-8", newline="\n")
+    typer.echo(f"written {RESULTS / 'REPORT.md'}")
