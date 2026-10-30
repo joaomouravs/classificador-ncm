@@ -107,3 +107,14 @@ def test_days_are_inclusive():
         date(2026, 10, 20),
         date(2026, 10, 21),
     ]
+
+
+def test_a_line_cut_by_a_crash_is_dropped_before_resuming(tmp_path):
+    collect_day(client(FakePortal(tenders=2)), date(2026, 10, 20), tmp_path)
+    (tmp_path / "2026-10-20.done").unlink()
+    path = tmp_path / "2026-10-20.jsonl"
+    path.write_bytes(path.read_bytes() + b'{"control_number": "000000000')  # killed mid-line
+
+    collect_day(client(FakePortal(tenders=3)), date(2026, 10, 20), tmp_path)
+
+    assert [row["control_number"][-6:] for row in lines(path)] == ["1/2026", "2/2026", "3/2026"]

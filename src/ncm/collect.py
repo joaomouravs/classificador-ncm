@@ -57,10 +57,16 @@ def collect_day(
         result.skipped = True
         return result
 
-    # Tenders already written by an interrupted run are not fetched again.
+    # Tenders already written by an interrupted run are not fetched again. A run killed
+    # in the middle of a line leaves it incomplete; it is cut off before appending, or
+    # the next line would be glued to it.
     seen: set[str] = set()
     if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
+        content = path.read_bytes()
+        if content and not content.endswith(b"\n"):
+            content = content[: content.rfind(b"\n") + 1]
+            path.write_bytes(content)
+        for line in content.decode("utf-8").splitlines():
             seen.add(json.loads(line)["control_number"])
 
     with path.open("a", encoding="utf-8") as out:
@@ -76,8 +82,10 @@ def collect_day(
                 # One broken tender should not stop a two-hour collection; it is counted.
                 result.failed_tenders += 1
                 continue
-            for item in items:
-                out.write(json.dumps(item_record(tender, item), ensure_ascii=False) + "\n")
+            # One write per tender, so a tender is on disk whole or (almost) not at all.
+            records = (json.dumps(item_record(tender, i), ensure_ascii=False) for i in items)
+            out.write("".join(r + "\n" for r in records))
+            out.flush()
             result.items += len(items)
             if progress:
                 progress(result.tenders)

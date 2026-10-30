@@ -10,3 +10,6 @@ __pycache__/
 
 # Raw downloads and built splits
 data/
+
+# Training checkpoints
+checkpoints/
