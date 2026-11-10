@@ -202,8 +202,8 @@ def model_card(
             "\n## In the browser\n\n"
             "`onnx/model_quantized.onnx` is an int8 export (dynamic quantization, one scale "
             "per output channel, chosen on validation over one per tensor) for "
-            "[transformers.js](https://huggingface.co/docs/transformers.js). "
-            + quantization_sentence(quantization).replace("The page runs", "It is")
+            "[transformers.js](https://huggingface.co/docs/transformers.js): "
+            + quantization_facts(quantization)
             + "\n"
         )
     runner_up = max(
@@ -349,13 +349,13 @@ SPACE_NAME = "ncm-chapter-classifier"
 SPACE_PAGE = Path(__file__).resolve().parents[2] / "space" / "index.html"
 
 
-def quantization_sentence(report: dict[str, Any]) -> str:
+def quantization_facts(report: dict[str, Any]) -> str:
     """What running the model in the browser costs, from results/quantization/."""
     chosen, fp32 = report[report["chosen"]], report["fp32"]
     return (
-        f"The page runs an int8 export ({chosen['megabytes']:.0f} MB, against "
-        f"{fp32['megabytes']:.0f} MB in fp32) that agrees with the full-precision model "
-        f"on {100 * chosen['agrees_with_pytorch']:.1f}% of the test items: macro-F1 "
+        f"{chosen['megabytes']:.0f} MB against {fp32['megabytes']:.0f} MB in fp32, and "
+        f"it agrees with the full-precision model on "
+        f"{100 * chosen['agrees_with_pytorch']:.1f}% of the test items: macro-F1 "
         f"{chosen['macro_f1']:.3f} and accuracy {chosen['accuracy']:.3f}."
     )
 
@@ -391,7 +391,9 @@ def space_summary(
             for d in full
         ],
         "versus": versus,
-        "quantized": quantization_sentence(quantization) if quantization else "",
+        "quantized": f"The page runs an int8 export: {quantization_facts(quantization)}"
+        if quantization
+        else "",
     }
 
 

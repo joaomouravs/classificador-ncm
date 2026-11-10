@@ -54,7 +54,7 @@ only learned those would look fine on accuracy.
   weights, so the model is exported to ONNX and its weights quantized to int8: 105 MB
   instead of 416 MB, 2.2 times faster on a CPU. With one scale per weight tensor, macro-F1
   drops from 0.914 to 0.885, below TF-IDF, and 3.8% of the predictions change. With one
-  scale per output channel it is 0.913, and 99.3% of the predictions agree with the
+  scale per output channel it is 0.912, and 99.3% of the predictions agree with the
   full-precision model. The variant was chosen on validation, then measured on test
   ([results/quantization](results/quantization/bertimbau-onnx.json),
   [scripts/export_onnx.py](scripts/export_onnx.py)).

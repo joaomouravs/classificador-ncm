@@ -110,7 +110,7 @@ def test_space_summary_ranks_full_test_runs_and_skips_samples():
     assert [m["model"] for m in summary["models"]] == ["bertimbau", "tfidf-logreg"]
     assert summary["test_items"] == 200
     assert summary["versus"].startswith("bertimbau against tfidf-logreg, a paired bootstrap")
-    assert summary["quantized"].startswith("The page runs an int8 export (105 MB, against 416 MB")
+    assert summary["quantized"].startswith("The page runs an int8 export: 105 MB against 416 MB")
     assert "on 99.3% of the test items" in summary["quantized"]
 
 
@@ -153,4 +153,4 @@ def test_model_card_reports_the_int8_export():
     card = model_card(model, [], "u/d", "u/m", truth, QUANTIZATION)
     assert "## In the browser" in card
     assert "`onnx/model_quantized.onnx` is an int8 export" in card
-    assert "It is an int8 export (105 MB" in card
+    assert "transformers.js): 105 MB against 416 MB in fp32" in card
