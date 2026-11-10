@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -13,6 +14,7 @@ from ncm.baselines import majority, tfidf
 from ncm.build import build as build_splits
 from ncm.build import read_raw, write
 from ncm.collect import RAW, collect_day, days
+from ncm.hub import DATASET_NAME, dataset_card, publish_dataset
 from ncm.pncp import PncpClient, new_http_client
 from ncm.results import RESULTS, build_report, record
 
@@ -100,3 +102,29 @@ def report() -> None:
     """Write results/REPORT.md from every model's scores."""
     (RESULTS / "REPORT.md").write_text(build_report(), encoding="utf-8", newline="\n")
     typer.echo(f"written {RESULTS / 'REPORT.md'}")
+
+
+def _env(name: str) -> str:
+    """A setting from the environment or from .env, which stays out of git."""
+    if value := os.environ.get(name):
+        return value
+    env = Path(".env")
+    if env.exists():
+        for line in env.read_text(encoding="utf-8").splitlines():
+            key, sep, value = line.partition("=")
+            if sep and key.strip() == name and value.strip():
+                return value.strip()
+    raise typer.BadParameter(f"{name} is not set; add it to .env")
+
+
+@app.command("publish-dataset")
+def publish_dataset_command(
+    name: Annotated[str, typer.Option(help="Dataset name on the Hub.")] = DATASET_NAME,
+) -> None:
+    """Publish data/dataset/ to the Hugging Face Hub, with a card generated from its stats."""
+    splits, _ = _splits()
+    stats = json.loads((DATASET / "stats.json").read_text(encoding="utf-8"))
+    seen = pd.concat([frame["first_seen"] for frame in splits.values()]).astype(str)
+    repo_id = f"{_env('HF_USERNAME')}/{name}"
+    card = dataset_card(stats, (seen.min(), seen.max()), repo_id)
+    typer.echo(f"published {publish_dataset(DATASET, repo_id, _env('HF_TOKEN'), card)}")
