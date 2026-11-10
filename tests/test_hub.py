@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ncm.chapters import CHAPTERS, OTHER_TITLE, title
 from ncm.evaluate import score
-from ncm.hub import dataset_card, model_card
+from ncm.hub import GRADIO_VERSION, dataset_card, model_card, space_readme, space_summary
 
 STATS = {
     "items": 1000,
@@ -79,3 +79,27 @@ def test_model_card_compares_with_the_runner_up_from_the_results():
     assert "| `30` | Produtos farmacêuticos | 1.00 | 100 |" in card
     assert not any(line.startswith("| `outros`") for line in card.splitlines())  # no examples
     assert "3.6 minutes on one Tesla T4" in card
+
+
+def test_space_summary_ranks_full_test_runs_and_skips_samples():
+    classes = ["30", "85", "outros"]
+    truth = ["30", "85"] * 100
+    results = [
+        _result("tfidf-logreg", ["30"] * 200, truth, classes),
+        _result("bertimbau", list(truth), truth, classes),
+        _result("gemini-zero-shot", ["85"] * 10, truth[:10], classes),  # a sample only
+    ]
+
+    summary = space_summary(results, truth, "u/pncp-ncm-chapters")
+
+    assert [m["model"] for m in summary["models"]] == ["bertimbau", "tfidf-logreg"]
+    assert summary["test_items"] == 200
+    assert summary["versus"].startswith("bertimbau against tfidf-logreg, a paired bootstrap")
+
+
+def test_space_readme_pins_gradio_and_links_model_and_dataset():
+    readme = space_readme("u/ncm-chapter-bertimbau", "u/pncp-ncm-chapters")
+    assert readme.startswith("---\ntitle: NCM Chapter Classifier\n")
+    assert f"sdk_version: {GRADIO_VERSION}\n" in readme
+    assert "models:\n- u/ncm-chapter-bertimbau\n" in readme
+    assert "datasets:\n- u/pncp-ncm-chapters\n" in readme

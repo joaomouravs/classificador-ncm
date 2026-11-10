@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -19,10 +20,15 @@ from ncm.evaluate import score
 from ncm.hub import (
     DATASET_NAME,
     MODEL_NAME,
+    SPACE_NAME,
+    SPACE_REQUIREMENTS,
     dataset_card,
     model_card,
     publish_dataset,
     publish_model,
+    publish_space,
+    space_readme,
+    space_summary,
 )
 from ncm.llm import BATCH, MAX_CHARS, PROVIDERS, Classifier, sample_indices, to_label
 from ncm.pncp import PncpClient, new_http_client
@@ -199,3 +205,44 @@ def publish_model_command(
     truth = (RESULTS / LABELS_FILE).read_text(encoding="utf-8").split()
     card = model_card(result, others, f"{user}/{DATASET_NAME}", repo_id, truth)
     typer.echo(f"published {publish_model(model_dir, repo_id, _env('HF_TOKEN'), card)}")
+
+
+REPO = "https://github.com/joaomouravs/classificador-ncm"
+
+
+def _published_commit() -> str:
+    """The current commit, if GitHub has it: the Space installs ncm from that commit."""
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    subprocess.run(["git", "fetch", "-q", "origin"], check=True)
+    pushed = subprocess.run(["git", "merge-base", "--is-ancestor", head, "origin/main"])
+    if pushed.returncode != 0:
+        raise typer.BadParameter(f"commit {head[:7]} is not on GitHub yet; push it first")
+    return head
+
+
+@app.command("publish-space")
+def publish_space_command(
+    name: Annotated[str, typer.Option(help="Space name on the Hub.")] = SPACE_NAME,
+) -> None:
+    """Publish the Gradio demo, with both models and the numbers from results/."""
+    user = _env("HF_USERNAME")
+    results = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(RESULTS.glob("*.json"))]
+    truth = (RESULTS / LABELS_FILE).read_text(encoding="utf-8").split()
+    dataset_repo, model_repo = f"{user}/{DATASET_NAME}", f"{user}/{MODEL_NAME}"
+    summary = space_summary(results, truth, dataset_repo)
+    requirements = [f"ncm @ git+{REPO}@{_published_commit()}", *SPACE_REQUIREMENTS]
+    files = {
+        "README.md": space_readme(model_repo, dataset_repo),
+        "requirements.txt": "".join(f"{r}\n" for r in requirements),
+        "summary.json": json.dumps(summary, ensure_ascii=False, indent=1) + "\n",
+    }
+    url = publish_space(
+        Path("space/app.py"),
+        MODELS / "tfidf-logreg.joblib",
+        f"{user}/{name}",
+        _env("HF_TOKEN"),
+        files,
+    )
+    typer.echo(f"published {url}")

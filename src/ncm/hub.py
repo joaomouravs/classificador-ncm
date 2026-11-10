@@ -166,7 +166,7 @@ def publish_dataset(dataset_dir: Path, repo_id: str, token: str, card: str) -> s
 MODEL_NAME = "ncm-chapter-bertimbau"
 
 
-def _versus(name: str, c: Comparison) -> str:
+def _versus(name: str, c: Comparison, subject: str = "") -> str:
     """One sentence on whether the gap to the runner-up is more than test-set noise."""
 
     def verdict(metric: str, values: tuple[float, float, float]) -> str:
@@ -175,7 +175,8 @@ def _versus(name: str, c: Comparison) -> str:
         return f"{metric} {mean:+.1f} points (95% interval {low:+.1f} to {high:+.1f}, {side})"
 
     return (
-        f"Against {name}, a paired bootstrap over the test items gives "
+        f"{f'{subject} against' if subject else 'Against'} {name}, "
+        "a paired bootstrap over the test items gives "
         f"{verdict('macro-F1', c.macro_f1)} and {verdict('accuracy', c.accuracy)}."
     )
 
@@ -301,5 +302,91 @@ def publish_model(model_dir: Path, repo_id: str, token: str, card: str) -> str:
         path_or_fileobj=card.encode("utf-8"),
         path_in_repo="README.md",
         commit_message="Model card",
+    )
+    return str(url)
+
+
+SPACE_NAME = "ncm-chapter-classifier"
+# Pinned to what the models were trained and saved with: a joblib file only loads in
+# the scikit-learn version that wrote it.
+SPACE_REQUIREMENTS = ["scikit-learn==1.9.1", "transformers==5.22.0", "torch==2.15.0"]
+GRADIO_VERSION = "6.30.0"
+
+
+def space_summary(
+    results: list[dict[str, Any]], truth: list[str], dataset_repo: str
+) -> dict[str, Any]:
+    """The numbers the Space shows, from results/: every model on the full test set,
+    and the comparison of the best two."""
+    full = sorted(
+        (d for d in results if len(d.get("test_predictions", [])) == len(truth)),
+        key=lambda d: -d["test"]["macro_f1"],
+    )
+    versus = ""
+    if len(full) >= 2:
+        gap = compare(truth, full[0]["test_predictions"], full[1]["test_predictions"])
+        versus = _versus(full[1]["model"], gap, subject=full[0]["model"])
+    return {
+        "test_items": len(truth),
+        "classes": list(full[0]["test"]["per_class"]) if full else [],
+        "dataset": dataset_repo,
+        "models": [
+            {
+                "model": d["model"],
+                "macro_f1": d["test"]["macro_f1"],
+                "accuracy": d["test"]["accuracy"],
+            }
+            for d in full
+        ],
+        "versus": versus,
+    }
+
+
+def space_readme(model_repo: str, dataset_repo: str) -> str:
+    return f"""---
+title: NCM Chapter Classifier
+emoji: 📦
+colorFrom: green
+colorTo: blue
+sdk: gradio
+sdk_version: {GRADIO_VERSION}
+python_version: "3.12"
+app_file: app.py
+pinned: false
+license: mit
+models:
+- {model_repo}
+datasets:
+- {dataset_repo}
+short_description: NCM chapter of a public procurement item, two models
+---
+
+Type the description of a good bought by a Brazilian public body and see the NCM chapter
+a fine-tuned BERTimbau and a TF-IDF model predict. Code and evaluation:
+[classificador-ncm](https://github.com/joaomouravs/classificador-ncm).
+"""
+
+
+def publish_space(
+    app: Path,
+    tfidf_model: Path,
+    repo_id: str,
+    token: str,
+    files: dict[str, str],
+) -> str:
+    """Create (or update) the public Gradio Space: the app, the TF-IDF model, and the
+    generated files (README, requirements, summary) given as {path: content}."""
+    from huggingface_hub import CommitOperationAdd, HfApi
+
+    api = HfApi(token=token)
+    url = api.create_repo(repo_id, repo_type="space", space_sdk="gradio", exist_ok=True)
+    operations = [
+        CommitOperationAdd("app.py", app.read_bytes()),
+        CommitOperationAdd(f"models/{tfidf_model.name}", tfidf_model.read_bytes()),
+        *(CommitOperationAdd(path, content.encode("utf-8")) for path, content in files.items()),
+    ]
+    # One commit, so the Space rebuilds once, with every file in place.
+    api.create_commit(
+        repo_id=repo_id, repo_type="space", operations=operations, commit_message="Deploy"
     )
     return str(url)

@@ -13,6 +13,9 @@ already carry their NCM code. The project builds a dataset from them
 ways of solving a text classification problem in 2026 on the same held-out test set: a
 classical model, a fine-tuned transformer and an LLM with no training data at all.
 
+**Try it:** [the demo on Hugging Face Spaces](https://huggingface.co/spaces/joaovux/ncm-chapter-classifier)
+shows what the fine-tuned model and TF-IDF predict for any description you type.
+
 ## Results
 
 1,492 descriptions of catalogue items first seen on 23 October 2026, none of them, in
@@ -120,7 +123,10 @@ uv run ncm report
 `uv run ncm publish-dataset` uploads the splits to the Hugging Face Hub with a dataset
 card generated from the build's statistics, and `uv run ncm publish-model <dir>` the
 fine-tuned model downloaded from Kaggle, with a model card generated from `results/`
-(`HF_USERNAME` and `HF_TOKEN` in `.env`). Neither card has a number typed by hand.
+(`HF_USERNAME` and `HF_TOKEN` in `.env`). `uv run ncm publish-space` deploys the
+[Gradio demo](space/app.py) with the TF-IDF model, the numbers from `results/`, and the
+`ncm` package pinned to the current commit, which it first checks is on GitHub. No card
+or page has a number typed by hand.
 
 The design and its milestones are in [docs/design.md](docs/design.md).
 
@@ -132,7 +138,10 @@ The design and its milestones are in [docs/design.md](docs/design.md).
   says nothing about them.
 - **The catalogue's mapping is taken as truth.** A CATMAT entry with the wrong NCM code
   is wrong in every row that uses it.
-- **Five days of tenders.** Seasonal purchases outside the window are missing, and seven
+- **Five days of tenders.** Whole product families are missing: there is not one tyre
+  in the training set, and both models call "Pneu aro 15" a vehicle part (87) instead of
+  rubber (40), a guess from the nearest thing they have seen. Seasonal purchases outside
+  the window are missing too, and seven
   of the fifteen classes have fewer than 20 test examples (one has none), so their
   per-class scores are noisy.
 

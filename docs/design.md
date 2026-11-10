@@ -1,6 +1,6 @@
 # Classificador NCM: design
 
-Status: M0 to M3 implemented, and the dataset and model cards of M4; the Space is next. The data
+Status: M0 to M4 implemented. The data
 changed three decisions below; see "Deviations" at the end.
 
 ## Problem
