@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NCM Chapter Classifier</title>
+<style>
+  :root {
+    --bg: #fafaf7; --surface: #ffffff; --text: #1d1d1b; --muted: #5f5f58;
+    --line: #e3e2dc; --accent: #1f6f50; --accent-soft: #e3f1ea; --bar: #2e8a63;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --surface: #1d1d1b; --text: #ecebe6; --muted: #a4a39b;
+      --line: #33332f; --accent: #6fcf9f; --accent-soft: #1f3329; --bar: #4fb585;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.7rem; margin: 0 0 8px; letter-spacing: -0.01em; }
+  p { margin: 0 0 12px; }
+  .muted { color: var(--muted); font-size: 0.93rem; }
+  a { color: var(--accent); }
+  textarea {
+    width: 100%; min-height: 96px; padding: 12px 14px; resize: vertical;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+    color: var(--text); font: inherit;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; gap: 10px; align-items: center; margin: 10px 0 18px; flex-wrap: wrap; }
+  button {
+    border: 0; border-radius: 10px; padding: 10px 18px; font: inherit; font-weight: 600;
+    background: var(--accent); color: var(--bg); cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .examples { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 24px; }
+  .examples button {
+    background: var(--accent-soft); color: var(--text); font-weight: 400;
+    padding: 6px 12px; font-size: 0.88rem; text-align: left;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 18px; margin-bottom: 24px;
+  }
+  .result { margin: 10px 0; }
+  .result .head { display: flex; justify-content: space-between; gap: 12px; font-size: 0.95rem; }
+  .result .code { font-weight: 700; font-variant-numeric: tabular-nums; margin-right: 6px; }
+  .result .pct { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+  .track { height: 8px; background: var(--accent-soft); border-radius: 4px; margin-top: 4px; overflow: hidden; }
+  .fill { height: 100%; background: var(--bar); border-radius: 4px; transition: width 200ms ease-out; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  #status { min-height: 1.5em; }
+  @media (prefers-reduced-motion: reduce) { .fill { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>NCM chapter classifier</h1>
+  <p>Type the description of a good bought by a Brazilian public body and see the
+    <strong>NCM chapter</strong> (the first two digits of the Mercosur product code) a
+    fine-tuned BERTimbau predicts: one of <span id="n-chapters"></span> chapters, or
+    <code>outros</code> for the rarer ones.</p>
+  <p class="muted">The model runs in your browser: the first visit downloads about
+    105 MB of int8 weights, then nothing leaves your machine.</p>
+
+  <label for="text" class="muted">Item description</label>
+  <textarea id="text" placeholder="Seringa descartável 10 ml, bico luer lock, estéril"></textarea>
+  <div class="row">
+    <button id="go" disabled>Classify</button>
+    <span id="status" class="muted" role="status" aria-live="polite">Loading the model…</span>
+  </div>
+  <div class="examples" id="examples"></div>
+
+  <div class="card" id="results" hidden></div>
+
+  <h2 style="font-size:1.1rem;margin:28px 0 8px">How good is it?</h2>
+  <p class="muted">On a held-out test set of <span id="n-test"></span> catalogue descriptions:</p>
+  <table id="scores">
+    <thead><tr><th>Model</th><th class="num">Macro-F1</th><th class="num">Accuracy</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <p class="muted" id="versus" style="margin-top:12px"></p>
+  <p class="muted" id="quantized"></p>
+  <p class="muted">Both models learned from catalogue entries (CATMAT); descriptions in an
+    agency's own words, without a catalogue code, will be harder.
+    <a href="https://github.com/joaomouravs/classificador-ncm">Code and evaluation</a> ·
+    <a id="model-link">model</a> · <a id="dataset-link">dataset</a></p>
+</main>
+
+<script type="application/json" id="summary">__SUMMARY__</script>
+<script type="application/json" id="chapters">__CHAPTERS__</script>
+<script type="module">
+  import { AutoTokenizer, AutoModelForSequenceClassification } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.1";
+
+  const SUMMARY = JSON.parse(document.getElementById("summary").textContent);
+  const CHAPTERS = JSON.parse(document.getElementById("chapters").textContent);
+  const MAX_LENGTH = 128; // what the model was trained with
+  const TOP = 5;
+  const EXAMPLES = [
+    "Seringa descartável 10 ml, bico luer lock, estéril",
+    "Cartucho toner impressora HP preto, compatível",
+    "Abaixador de língua, material: plástico, comprimento: 14 cm",
+    "Dipirona sódica 500 mg, comprimido",
+    "Cadeira giratória com rodízios e braços reguláveis",
+    "Notebook processador 8 núcleos, memória 16 GB, SSD 512 GB",
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const text = $("text"), go = $("go"), status = $("status"), results = $("results");
+  const title = (label) => CHAPTERS[label] ?? "Outros capítulos (poucos exemplos no treino)";
+  const pct = (x) => `${(100 * x).toFixed(1)}%`;
+
+  // The page's numbers come from the repository's results/, written in at publish time.
+  $("n-chapters").textContent = SUMMARY.classes.length - 1;
+  $("n-test").textContent = SUMMARY.test_items.toLocaleString("en");
+  for (const m of SUMMARY.models) {
+    const row = document.createElement("tr");
+    row.innerHTML = `<td></td><td class="num">${m.macro_f1.toFixed(3)}</td><td class="num">${m.accuracy.toFixed(3)}</td>`;
+    row.firstChild.textContent = m.model;
+    $("scores").tBodies[0].append(row);
+  }
+  $("versus").textContent = SUMMARY.versus;
+  $("quantized").textContent = SUMMARY.quantized;
+  $("model-link").href = `https://huggingface.co/${SUMMARY.model}`;
+  $("dataset-link").href = `https://huggingface.co/datasets/${SUMMARY.dataset}`;
+
+  for (const example of EXAMPLES) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = example;
+    b.addEventListener("click", () => { text.value = example; classify(); });
+    $("examples").append(b);
+  }
+
+  let tokenizer, model;
+  const files = new Map();
+  try {
+    tokenizer = await AutoTokenizer.from_pretrained(SUMMARY.model);
+    model = await AutoModelForSequenceClassification.from_pretrained(SUMMARY.model, {
+      dtype: "q8",
+      device: "wasm",
+      progress_callback: (p) => {
+        if (p.status === "progress" && p.total) {
+          files.set(p.file, [p.loaded, p.total]);
+          const [loaded, total] = [...files.values()].reduce((a, [l, t]) => [a[0] + l, a[1] + t], [0, 0]);
+          status.textContent = `Downloading the model… ${pct(loaded / total)} of ${(total / 2 ** 20).toFixed(0)} MB`;
+        }
+      },
+    });
+    status.textContent = "Ready.";
+    go.disabled = false;
+  } catch (error) {
+    status.textContent = `Could not load the model: ${error.message}`;
+    throw error;
+  }
+
+  async function classify() {
+    const description = text.value.trim().replace(/\s+/g, " ");
+    if (!description || !model) return;
+    go.disabled = true;
+    status.textContent = "Classifying…";
+    const inputs = tokenizer(description, { truncation: true, max_length: MAX_LENGTH });
+    const { logits } = await model(inputs);
+    const values = Array.from(logits.data);
+    const peak = Math.max(...values);
+    const exps = values.map((v) => Math.exp(v - peak));
+    const sum = exps.reduce((a, b) => a + b, 0);
+    const ranked = exps
+      .map((e, i) => ({ label: model.config.id2label[i], p: e / sum }))
+      .sort((a, b) => b.p - a.p)
+      .slice(0, TOP);
+    results.replaceChildren(...ranked.map(({ label, p }) => {
+      const item = document.createElement("div");
+      item.className = "result";
+      item.innerHTML = `<div class="head"><span><span class="code"></span><span class="name"></span></span><span class="pct"></span></div><div class="track"><div class="fill"></div></div>`;
+      item.querySelector(".code").textContent = label;
+      item.querySelector(".name").textContent = title(label);
+      item.querySelector(".pct").textContent = pct(p);
+      item.querySelector(".fill").style.width = pct(p);
+      return item;
+    }));
+    results.hidden = false;
+    status.textContent = "Ready.";
+    go.disabled = false;
+  }
+
+  go.addEventListener("click", classify);
+  text.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) classify();
+  });
+</script>
+</body>
+</html>

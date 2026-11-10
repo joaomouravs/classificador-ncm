@@ -1,0 +1,27 @@
+{
+ "reference": "results/bertimbau.json (PyTorch, fp32)",
+ "chosen": "int8-per-channel",
+ "chosen_by": "agreement with fp32 on the validation set",
+ "validation_agreement": 0.9959,
+ "fp32": {
+  "megabytes": 415.8,
+  "macro_f1": 0.9136,
+  "accuracy": 0.9491,
+  "agrees_with_pytorch": 1.0,
+  "cpu_seconds_per_1000_items": 85.23
+ },
+ "int8-per-tensor": {
+  "megabytes": 104.6,
+  "macro_f1": 0.8854,
+  "accuracy": 0.9229,
+  "agrees_with_pytorch": 0.9618,
+  "cpu_seconds_per_1000_items": 39.27
+ },
+ "int8-per-channel": {
+  "megabytes": 105.0,
+  "macro_f1": 0.9125,
+  "accuracy": 0.9477,
+  "agrees_with_pytorch": 0.9933,
+  "cpu_seconds_per_1000_items": 39.34
+ }
+}

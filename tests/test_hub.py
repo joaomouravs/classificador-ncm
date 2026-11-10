@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ncm.chapters import CHAPTERS, OTHER_TITLE, title
 from ncm.evaluate import score
-from ncm.hub import GRADIO_VERSION, dataset_card, model_card, space_readme, space_summary
+from ncm.hub import dataset_card, model_card, space_page, space_readme, space_summary
 
 STATS = {
     "items": 1000,
@@ -81,7 +81,19 @@ def test_model_card_compares_with_the_runner_up_from_the_results():
     assert "3.6 minutes on one Tesla T4" in card
 
 
-def test_space_summary_ranks_full_test_runs_and_skips_samples():
+QUANTIZATION = {
+    "chosen": "int8-per-channel",
+    "fp32": {"megabytes": 415.8, "macro_f1": 0.9136, "accuracy": 0.9491},
+    "int8-per-channel": {
+        "megabytes": 105.0,
+        "macro_f1": 0.9125,
+        "accuracy": 0.9477,
+        "agrees_with_pytorch": 0.9933,
+    },
+}
+
+
+def _summary():
     classes = ["30", "85", "outros"]
     truth = ["30", "85"] * 100
     results = [
@@ -89,17 +101,56 @@ def test_space_summary_ranks_full_test_runs_and_skips_samples():
         _result("bertimbau", list(truth), truth, classes),
         _result("gemini-zero-shot", ["85"] * 10, truth[:10], classes),  # a sample only
     ]
+    return space_summary(results, truth, "u/model", "u/dataset", QUANTIZATION)
 
-    summary = space_summary(results, truth, "u/pncp-ncm-chapters")
+
+def test_space_summary_ranks_full_test_runs_and_skips_samples():
+    summary = _summary()
 
     assert [m["model"] for m in summary["models"]] == ["bertimbau", "tfidf-logreg"]
     assert summary["test_items"] == 200
     assert summary["versus"].startswith("bertimbau against tfidf-logreg, a paired bootstrap")
+    assert summary["quantized"].startswith("The page runs an int8 export (105 MB, against 416 MB")
+    assert "on 99.3% of the test items" in summary["quantized"]
 
 
-def test_space_readme_pins_gradio_and_links_model_and_dataset():
+def test_space_page_embeds_the_numbers_and_cannot_be_broken_by_a_title(tmp_path):
+    template = tmp_path / "index.html"
+    template.write_text(
+        '<script type="application/json" id="summary">__SUMMARY__</script>'
+        '<script type="application/json" id="chapters">__CHAPTERS__</script>',
+        encoding="utf-8",
+    )
+    summary = _summary() | {"versus": "a </script> in the text"}
+
+    page = space_page(summary, template)
+
+    assert "__SUMMARY__" not in page and "__CHAPTERS__" not in page
+    assert page.count("</script>") == 2  # the one in the text was escaped
+    assert '"model": "u/model"' in page
+    assert "Produtos farmacêuticos" in page
+
+
+def test_the_real_page_has_both_placeholders():
+    page = space_page(_summary())
+    assert "__SUMMARY__" not in page and "__CHAPTERS__" not in page
+    assert "@huggingface/transformers@4.3.1" in page
+    assert "max_length: MAX_LENGTH" in page
+
+
+def test_space_readme_is_static_and_links_model_and_dataset():
     readme = space_readme("u/ncm-chapter-bertimbau", "u/pncp-ncm-chapters")
     assert readme.startswith("---\ntitle: NCM Chapter Classifier\n")
-    assert f"sdk_version: {GRADIO_VERSION}\n" in readme
+    assert "sdk: static\n" in readme
     assert "models:\n- u/ncm-chapter-bertimbau\n" in readme
     assert "datasets:\n- u/pncp-ncm-chapters\n" in readme
+
+
+def test_model_card_reports_the_int8_export():
+    classes = ["30", "85", "outros"]
+    truth = ["30", "85"] * 100
+    model = _result("bertimbau", list(truth), truth, classes)
+    card = model_card(model, [], "u/d", "u/m", truth, QUANTIZATION)
+    assert "## In the browser" in card
+    assert "`onnx/model_quantized.onnx` is an int8 export" in card
+    assert "It is an int8 export (105 MB" in card

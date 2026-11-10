@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
@@ -21,14 +20,16 @@ from ncm.hub import (
     DATASET_NAME,
     MODEL_NAME,
     SPACE_NAME,
-    SPACE_REQUIREMENTS,
     dataset_card,
     model_card,
     publish_dataset,
     publish_model,
+    publish_onnx,
     publish_space,
+    space_page,
     space_readme,
     space_summary,
+    update_model_card,
 )
 from ncm.llm import BATCH, MAX_CHARS, PROVIDERS, Classifier, sample_indices, to_label
 from ncm.pncp import PncpClient, new_http_client
@@ -188,61 +189,64 @@ def zero_shot(
     )
 
 
-@app.command("publish-model")
-def publish_model_command(
-    model_dir: Annotated[Path, typer.Argument(help="The saved model, from the Kaggle output.")],
-    name: Annotated[str, typer.Option(help="Model name on the Hub.")] = MODEL_NAME,
-) -> None:
-    """Publish the fine-tuned model to the Hugging Face Hub, with a card from results/."""
+QUANTIZATION = RESULTS / "quantization" / "bertimbau-onnx.json"
+
+
+def _quantization() -> dict | None:
+    if not QUANTIZATION.exists():
+        return None
+    return json.loads(QUANTIZATION.read_text(encoding="utf-8"))
+
+
+def _model_card(repo_id: str) -> str:
+    """The model card from results/: scores, the comparison with the runner-up, and
+    what the int8 export costs once scripts/export_onnx.py has measured it."""
     result = json.loads((RESULTS / "bertimbau.json").read_text(encoding="utf-8"))
     others = [
         json.loads(p.read_text(encoding="utf-8"))
         for p in sorted(RESULTS.glob("*.json"))
         if p.name != "bertimbau.json"
     ]
-    user = _env("HF_USERNAME")
-    repo_id = f"{user}/{name}"
     truth = (RESULTS / LABELS_FILE).read_text(encoding="utf-8").split()
-    card = model_card(result, others, f"{user}/{DATASET_NAME}", repo_id, truth)
-    typer.echo(f"published {publish_model(model_dir, repo_id, _env('HF_TOKEN'), card)}")
+    dataset_repo = f"{_env('HF_USERNAME')}/{DATASET_NAME}"
+    return model_card(result, others, dataset_repo, repo_id, truth, _quantization())
 
 
-REPO = "https://github.com/joaomouravs/classificador-ncm"
+@app.command("publish-model")
+def publish_model_command(
+    model_dir: Annotated[Path, typer.Argument(help="The saved model, from the Kaggle output.")],
+    name: Annotated[str, typer.Option(help="Model name on the Hub.")] = MODEL_NAME,
+) -> None:
+    """Publish the fine-tuned model to the Hugging Face Hub, with a card from results/.
+    Uploading 440 MB takes minutes: run it in a terminal, not with a short timeout."""
+    repo_id = f"{_env('HF_USERNAME')}/{name}"
+    url = publish_model(model_dir, repo_id, _env("HF_TOKEN"), _model_card(repo_id))
+    typer.echo(f"published {url}")
 
 
-def _published_commit() -> str:
-    """The current commit, if GitHub has it: the Space installs ncm from that commit."""
-    head = subprocess.run(
-        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
-    ).stdout.strip()
-    subprocess.run(["git", "fetch", "-q", "origin"], check=True)
-    pushed = subprocess.run(["git", "merge-base", "--is-ancestor", head, "origin/main"])
-    if pushed.returncode != 0:
-        raise typer.BadParameter(f"commit {head[:7]} is not on GitHub yet; push it first")
-    return head
+@app.command("publish-onnx")
+def publish_onnx_command(
+    onnx_dir: Annotated[Path, typer.Argument(help="The output of scripts/export_onnx.py.")],
+    name: Annotated[str, typer.Option(help="Model name on the Hub.")] = MODEL_NAME,
+) -> None:
+    """Add the int8 ONNX export to the model repository and refresh its card."""
+    if _quantization() is None:
+        raise typer.BadParameter(f"{QUANTIZATION} is missing; run scripts/export_onnx.py")
+    repo_id = f"{_env('HF_USERNAME')}/{name}"
+    publish_onnx(onnx_dir, repo_id, _env("HF_TOKEN"))
+    update_model_card(repo_id, _env("HF_TOKEN"), _model_card(repo_id))
+    typer.echo(f"published onnx/model_quantized.onnx to {repo_id}")
 
 
 @app.command("publish-space")
 def publish_space_command(
     name: Annotated[str, typer.Option(help="Space name on the Hub.")] = SPACE_NAME,
 ) -> None:
-    """Publish the Gradio demo, with both models and the numbers from results/."""
+    """Publish the browser demo, a static page with the numbers from results/."""
     user = _env("HF_USERNAME")
     results = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(RESULTS.glob("*.json"))]
     truth = (RESULTS / LABELS_FILE).read_text(encoding="utf-8").split()
     dataset_repo, model_repo = f"{user}/{DATASET_NAME}", f"{user}/{MODEL_NAME}"
-    summary = space_summary(results, truth, dataset_repo)
-    requirements = [f"ncm @ git+{REPO}@{_published_commit()}", *SPACE_REQUIREMENTS]
-    files = {
-        "README.md": space_readme(model_repo, dataset_repo),
-        "requirements.txt": "".join(f"{r}\n" for r in requirements),
-        "summary.json": json.dumps(summary, ensure_ascii=False, indent=1) + "\n",
-    }
-    url = publish_space(
-        Path("space/app.py"),
-        MODELS / "tfidf-logreg.joblib",
-        f"{user}/{name}",
-        _env("HF_TOKEN"),
-        files,
-    )
-    typer.echo(f"published {url}")
+    summary = space_summary(results, truth, model_repo, dataset_repo, _quantization())
+    files = {"README.md": space_readme(model_repo, dataset_repo), "index.html": space_page(summary)}
+    typer.echo(f"published {publish_space(f'{user}/{name}', _env('HF_TOKEN'), files)}")

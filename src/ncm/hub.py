@@ -6,6 +6,7 @@ of the files it ships with.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -187,12 +188,24 @@ def model_card(
     dataset_repo: str,
     repo_id: str,
     truth: list[str] | None = None,
+    quantization: dict[str, Any] | None = None,
 ) -> str:
     """The README.md of the model repository, from results/bertimbau.json and the other
     models' results, so the card shows what the model is compared against. With the test
-    labels, it also says whether the gap to the best other model is more than noise."""
+    labels, it also says whether the gap to the best other model is more than noise;
+    with the quantization report, what the int8 ONNX export costs."""
     params = result["params"]
     test = result["test"]
+    browser = ""
+    if quantization:
+        browser = (
+            "\n## In the browser\n\n"
+            "`onnx/model_quantized.onnx` is an int8 export (dynamic quantization, one scale "
+            "per output channel, chosen on validation over one per tensor) for "
+            "[transformers.js](https://huggingface.co/docs/transformers.js). "
+            + quantization_sentence(quantization).replace("The page runs", "It is")
+            + "\n"
+        )
     runner_up = max(
         (d for d in others if truth and len(d.get("test_predictions", [])) == len(truth)),
         key=lambda d: d["test"]["macro_f1"],
@@ -272,7 +285,7 @@ last day collected, none of them, in any wording, in training.
 {params["epochs"]:g} epochs, learning rate {params["lr"]:g}, batch {params["batch"]}, sequences
 cut at {params["max_length"]} tokens, class-weighted loss, best epoch chosen by validation
 macro-F1. {result["train_seconds"] / 60:.1f} minutes on one {result["hardware"]}.
-
+{browser}
 ## Limitations
 
 - **Catalogue text only.** Every training description is a CATMAT catalogue entry. Most
@@ -306,18 +319,56 @@ def publish_model(model_dir: Path, repo_id: str, token: str, card: str) -> str:
     return str(url)
 
 
+def publish_onnx(onnx_dir: Path, repo_id: str, token: str) -> None:
+    """Add the int8 ONNX export to the model repository, where transformers.js looks for
+    it (onnx/model_quantized.onnx), so the browser demo can load the model."""
+    from huggingface_hub import HfApi
+
+    HfApi(token=token).upload_file(
+        repo_id=repo_id,
+        path_or_fileobj=onnx_dir / "onnx" / "model_quantized.onnx",
+        path_in_repo="onnx/model_quantized.onnx",
+        commit_message="ONNX export, int8 per-channel, for transformers.js",
+    )
+
+
+def update_model_card(repo_id: str, token: str, card: str) -> None:
+    from huggingface_hub import HfApi
+
+    HfApi(token=token).upload_file(
+        repo_id=repo_id,
+        path_or_fileobj=card.encode("utf-8"),
+        path_in_repo="README.md",
+        commit_message="Model card",
+    )
+
+
 SPACE_NAME = "ncm-chapter-classifier"
-# Pinned to what the models were trained and saved with: a joblib file only loads in
-# the scikit-learn version that wrote it.
-SPACE_REQUIREMENTS = ["scikit-learn==1.9.1", "transformers==5.22.0", "torch==2.15.0"]
-GRADIO_VERSION = "6.30.0"
+# A free Space can only be static (Gradio and Docker Spaces on the free CPU now need a
+# paid plan), so the demo is one HTML page that runs the model in the browser.
+SPACE_PAGE = Path(__file__).resolve().parents[2] / "space" / "index.html"
+
+
+def quantization_sentence(report: dict[str, Any]) -> str:
+    """What running the model in the browser costs, from results/quantization/."""
+    chosen, fp32 = report[report["chosen"]], report["fp32"]
+    return (
+        f"The page runs an int8 export ({chosen['megabytes']:.0f} MB, against "
+        f"{fp32['megabytes']:.0f} MB in fp32) that agrees with the full-precision model "
+        f"on {100 * chosen['agrees_with_pytorch']:.1f}% of the test items: macro-F1 "
+        f"{chosen['macro_f1']:.3f} and accuracy {chosen['accuracy']:.3f}."
+    )
 
 
 def space_summary(
-    results: list[dict[str, Any]], truth: list[str], dataset_repo: str
+    results: list[dict[str, Any]],
+    truth: list[str],
+    model_repo: str,
+    dataset_repo: str,
+    quantization: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The numbers the Space shows, from results/: every model on the full test set,
-    and the comparison of the best two."""
+    the comparison of the best two, and what quantizing cost."""
     full = sorted(
         (d for d in results if len(d.get("test_predictions", [])) == len(truth)),
         key=lambda d: -d["test"]["macro_f1"],
@@ -329,6 +380,7 @@ def space_summary(
     return {
         "test_items": len(truth),
         "classes": list(full[0]["test"]["per_class"]) if full else [],
+        "model": model_repo,
         "dataset": dataset_repo,
         "models": [
             {
@@ -339,7 +391,20 @@ def space_summary(
             for d in full
         ],
         "versus": versus,
+        "quantized": quantization_sentence(quantization) if quantization else "",
     }
+
+
+def space_page(summary: dict[str, Any], template: Path = SPACE_PAGE) -> str:
+    """The page with the summary and the chapter titles written in. "</" is escaped so
+    no title can close the script element that holds it."""
+    from ncm.chapters import CHAPTERS
+
+    def embed(value: Any) -> str:
+        return json.dumps(value, ensure_ascii=False).replace("</", "<\\/")
+
+    page = template.read_text(encoding="utf-8")
+    return page.replace("__SUMMARY__", embed(summary)).replace("__CHAPTERS__", embed(CHAPTERS))
 
 
 def space_readme(model_repo: str, dataset_repo: str) -> str:
@@ -348,44 +413,30 @@ title: NCM Chapter Classifier
 emoji: 📦
 colorFrom: green
 colorTo: blue
-sdk: gradio
-sdk_version: {GRADIO_VERSION}
-python_version: "3.12"
-app_file: app.py
+sdk: static
 pinned: false
 license: mit
 models:
 - {model_repo}
 datasets:
 - {dataset_repo}
-short_description: NCM chapter of a public procurement item, two models
+short_description: NCM chapter of a public procurement item, in the browser
 ---
 
 Type the description of a good bought by a Brazilian public body and see the NCM chapter
-a fine-tuned BERTimbau and a TF-IDF model predict. Code and evaluation:
-[classificador-ncm](https://github.com/joaomouravs/classificador-ncm).
+a fine-tuned BERTimbau predicts, running in the browser with transformers.js. Code and
+evaluation: [classificador-ncm](https://github.com/joaomouravs/classificador-ncm).
 """
 
 
-def publish_space(
-    app: Path,
-    tfidf_model: Path,
-    repo_id: str,
-    token: str,
-    files: dict[str, str],
-) -> str:
-    """Create (or update) the public Gradio Space: the app, the TF-IDF model, and the
-    generated files (README, requirements, summary) given as {path: content}."""
+def publish_space(repo_id: str, token: str, files: dict[str, str]) -> str:
+    """Create (or update) the public static Space with the generated files, in one
+    commit so it rebuilds once."""
     from huggingface_hub import CommitOperationAdd, HfApi
 
     api = HfApi(token=token)
-    url = api.create_repo(repo_id, repo_type="space", space_sdk="gradio", exist_ok=True)
-    operations = [
-        CommitOperationAdd("app.py", app.read_bytes()),
-        CommitOperationAdd(f"models/{tfidf_model.name}", tfidf_model.read_bytes()),
-        *(CommitOperationAdd(path, content.encode("utf-8")) for path, content in files.items()),
-    ]
-    # One commit, so the Space rebuilds once, with every file in place.
+    url = api.create_repo(repo_id, repo_type="space", space_sdk="static", exist_ok=True)
+    operations = [CommitOperationAdd(p, content.encode("utf-8")) for p, content in files.items()]
     api.create_commit(
         repo_id=repo_id, repo_type="space", operations=operations, commit_message="Deploy"
     )

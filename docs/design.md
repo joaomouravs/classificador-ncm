@@ -1,6 +1,6 @@
 # Classificador NCM: design
 
-Status: M0 to M4 implemented. The data
+Status: M0 to M4 implemented; the demo is a static Space running an int8 ONNX export in the browser. The data
 changed three decisions below; see "Deviations" at the end.
 
 ## Problem
@@ -110,3 +110,7 @@ Measured on the full collection (19 to 23 October 2026), and implemented:
   LLM is scored on all of it; the sampling code stays for larger test sets.
 - **Macro-F1** leaves out classes with no test examples, which would otherwise count as
   0 for every model.
+- **Demo.** Gradio Spaces on the free CPU now need a paid plan, so the demo is a static
+  Space running the model in the browser (transformers.js, int8 ONNX, chosen on
+  validation: one scale per channel, which keeps 99.3% of the predictions). TF-IDF is
+  not in the demo: its character n-gram vocabulary is too large to ship to a browser.

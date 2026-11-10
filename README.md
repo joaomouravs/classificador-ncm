@@ -14,7 +14,8 @@ ways of solving a text classification problem in 2026 on the same held-out test 
 classical model, a fine-tuned transformer and an LLM with no training data at all.
 
 **Try it:** [the demo on Hugging Face Spaces](https://huggingface.co/spaces/joaovux/ncm-chapter-classifier)
-shows what the fine-tuned model and TF-IDF predict for any description you type.
+runs the fine-tuned model in your browser and shows its top chapters for any description
+you type.
 
 ## Results
 
@@ -49,6 +50,14 @@ only learned those would look fine on accuracy.
   is for, and a model trained on labels learns that convention. Some of the
   disagreements are the catalogue's own convention, though: a bottle of printer ink,
   which the catalogue files under printers (84), is arguably ink (32).
+- **How you quantize matters more than whether you do.** The browser demo needs small
+  weights, so the model is exported to ONNX and its weights quantized to int8: 105 MB
+  instead of 416 MB, 2.2 times faster on a CPU. With one scale per weight tensor, macro-F1
+  drops from 0.914 to 0.885, below TF-IDF, and 3.8% of the predictions change. With one
+  scale per output channel it is 0.913, and 99.3% of the predictions agree with the
+  full-precision model. The variant was chosen on validation, then measured on test
+  ([results/quantization](results/quantization/bertimbau-onnx.json),
+  [scripts/export_onnx.py](scripts/export_onnx.py)).
 - **Zero-shot is the expensive option here.** About 140,000 input tokens per 1,000
   items, most of them the chapter list repeated in every request, for 29 points less
   macro-F1. It is still what you get on day one with no labelled data.
@@ -123,10 +132,19 @@ uv run ncm report
 `uv run ncm publish-dataset` uploads the splits to the Hugging Face Hub with a dataset
 card generated from the build's statistics, and `uv run ncm publish-model <dir>` the
 fine-tuned model downloaded from Kaggle, with a model card generated from `results/`
-(`HF_USERNAME` and `HF_TOKEN` in `.env`). `uv run ncm publish-space` deploys the
-[Gradio demo](space/app.py) with the TF-IDF model, the numbers from `results/`, and the
-`ncm` package pinned to the current commit, which it first checks is on GitHub. No card
-or page has a number typed by hand.
+(`HF_USERNAME` and `HF_TOKEN` in `.env`). Neither card has a number typed by hand.
+
+The demo is a static Space, because Gradio and Docker Spaces on Hugging Face's free CPU
+now need a paid plan. [space/index.html](space/index.html) loads the int8 ONNX export
+with [transformers.js](https://huggingface.co/docs/transformers.js) and cuts inputs at
+128 tokens, as in training (the default pipeline would cut at 512). To rebuild it:
+
+```sh
+uv run --with onnx==1.23.2 --with onnxruntime==1.31.0 --with onnxscript==0.7.2 \
+    --group train python scripts/export_onnx.py <saved model dir> <onnx dir>
+uv run ncm publish-onnx <onnx dir>    # adds onnx/model_quantized.onnx to the model repo
+uv run ncm publish-space              # the page, with the numbers from results/
+```
 
 The design and its milestones are in [docs/design.md](docs/design.md).
 
