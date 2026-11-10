@@ -8,7 +8,8 @@ trade statistics; its first two digits are the chapter: 30 is pharmaceuticals, 8
 machinery, 85 electrical equipment, 90 optical and medical instruments.
 
 The labels cost nothing: some items published on the national procurement portal (PNCP)
-already carry their NCM code. The project builds a dataset from them, and compares three
+already carry their NCM code. The project builds a dataset from them
+([on Hugging Face](https://huggingface.co/datasets/joaovux/pncp-ncm-chapters)), and compares three
 ways of solving a text classification problem in 2026 on the same held-out test set: a
 classical model, a fine-tuned transformer and an LLM with no training data at all.
 
