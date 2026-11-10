@@ -1,6 +1,7 @@
 # Classificador NCM: design
 
-Status: draft
+Status: M0, M1 and M3 implemented; M2 (BERTimbau) and M4 (Space, cards) next. The data
+changed three decisions below; see "Deviations" at the end.
 
 ## Problem
 
@@ -89,3 +90,23 @@ Python 3.12 with uv, httpx, pandas, scikit-learn, Hugging Face `datasets`,
 - **M2**: BERTimbau fine-tuning notebook on Kaggle; model on Hugging Face.
 - **M3**: LLM zero-shot on the test sample; comparison table; label-noise check.
 - **M4**: Gradio Space, dataset and model cards, README, write-up.
+
+## Deviations
+
+Measured on the full collection (19 to 23 October 2026), and implemented:
+
+- **Coverage.** 9% of goods carry an NCM code, not 35%: 17,297 labelled items out of
+  194,855 goods. The dataset is about 13,000 distinct descriptions instead of the tens
+  of thousands planned.
+- **Labels and noise.** The NCM code comes with the CATMAT catalogue entry (17,296 of
+  17,298 labelled items have one, and a catalogue code never changes chapter between
+  tenders). The planned hand check of label noise becomes a limitation instead: the
+  catalogue's mapping is taken as truth.
+- **Leakage.** Splitting by normalised description put 766 of 2,309 test rows on
+  catalogue items already in training, reworded. Splits are now by catalogue item.
+- **Test window.** Test is the catalogue items first seen on the last day, not the last
+  week: five days collected, and one day already gives 1,492 test rows.
+- **LLM sample.** The whole test set fits the free tier (60 batched requests), so the
+  LLM is scored on all of it; the sampling code stays for larger test sets.
+- **Macro-F1** leaves out classes with no test examples, which would otherwise count as
+  0 for every model.
