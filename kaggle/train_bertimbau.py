@@ -56,14 +56,16 @@ def score(truth: list[str], predicted: list[str], labels: list[str]) -> dict:
         truth, predicted, labels=labels, **ZERO
     )
     mistakes = Counter((t, p) for t, p in zip(truth, predicted, strict=True) if t != p)
+    # Classes absent from truth are left out of the averages, as in ncm.evaluate.score.
+    present = [label for label in labels if label in set(truth)]
     return {
         "examples": len(truth),
         "accuracy": round(float(accuracy_score(truth, predicted)), 4),
         "macro_f1": round(
-            float(f1_score(truth, predicted, labels=labels, average="macro", **ZERO)), 4
+            float(f1_score(truth, predicted, labels=present, average="macro", **ZERO)), 4
         ),
         "weighted_f1": round(
-            float(f1_score(truth, predicted, labels=labels, average="weighted", **ZERO)), 4
+            float(f1_score(truth, predicted, labels=present, average="weighted", **ZERO)), 4
         ),
         "per_class": {
             label: {
@@ -132,7 +134,7 @@ def main() -> None:
     def metrics(prediction) -> dict:
         predicted = [labels[i] for i in np.argmax(prediction.predictions, axis=1)]
         truth = [labels[i] for i in prediction.label_ids]
-        return {"macro_f1": f1_score(truth, predicted, labels=labels, average="macro", **ZERO)}
+        return {"macro_f1": score(truth, predicted, labels)["macro_f1"]}
 
     trainer = WeightedTrainer(
         model=model,

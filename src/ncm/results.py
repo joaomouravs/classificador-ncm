@@ -58,9 +58,9 @@ def save(document: dict[str, Any], results: Path = RESULTS) -> None:
 
 def _on_sample(documents: list[dict[str, Any]], labels: list[str]) -> list[str]:
     """Every model scored on the test rows the LLM saw, so the comparison is like for
-    like. Empty when no model ran on a sample."""
+    like. Empty when no model ran on a sample, or the sample is the whole test set."""
     sampled = next((d for d in documents if "sample" in d), None)
-    if sampled is None:
+    if sampled is None or len(sampled["sample"]["indices"]) == sampled["sample"]["of"]:
         return []
     indices, truth = sampled["sample"]["indices"], sampled["sample"]["labels"]
     rows = []

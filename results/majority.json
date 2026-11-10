@@ -2,7 +2,7 @@
  "model": "majority",
  "params": {},
  "train_seconds": 0.0,
- "ms_per_1000_items": 0.0,
+ "ms_per_1000_items": 0.1,
  "validation": {
   "examples": 1218,
   "accuracy": 0.3727,
@@ -156,7 +156,7 @@
  "test": {
   "examples": 1492,
   "accuracy": 0.3371,
-  "macro_f1": 0.0336,
+  "macro_f1": 0.036,
   "weighted_f1": 0.17,
   "per_class": {
    "30": {

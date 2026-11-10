@@ -94,4 +94,4 @@ def test_report_scores_every_model_on_the_llm_sample(tmp_path):
     # always-30 is wrong on both sampled rows, which are both chapter 90.
     assert "| always-30 | 0.000 | 0.000 |" in sample_rows
     assert any(r.startswith("| llm-zero-shot |") for r in sample_rows)
-    assert "| llm-zero-shot | 2 | 0.333 | 1.000 | n/a |" in report
+    assert "| llm-zero-shot | 2 | 1.000 | 1.000 | n/a |" in report

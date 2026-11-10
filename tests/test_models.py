@@ -20,9 +20,11 @@ def test_a_class_never_predicted_still_counts_against_macro_f1():
     scores = score(truth, predicted, LABELS)
 
     assert scores.accuracy == 0.75
-    # 90 has F1 6/7; 30 has 0; 40 and outros have no examples and score 0 as well.
-    assert scores.macro_f1 == pytest.approx((6 / 7) / 4)
+    # 90 has F1 6/7 and 30, never predicted, has 0. 40 and outros have no examples here,
+    # so they are left out of the average rather than counted as 0 for every model.
+    assert scores.macro_f1 == pytest.approx((6 / 7) / 2)
     assert scores.per_class["30"]["recall"] == 0
+    assert scores.per_class["40"]["support"] == 0
     assert scores.confusions == [("30", "90", 1)]
 
 

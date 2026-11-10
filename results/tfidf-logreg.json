@@ -3,8 +3,8 @@
  "params": {
   "C": 16.0
  },
- "train_seconds": 23.7,
- "ms_per_1000_items": 493.8,
+ "train_seconds": 87.9,
+ "ms_per_1000_items": 2448.4,
  "validation": {
   "examples": 1218,
   "accuracy": 0.9573,
@@ -158,7 +158,7 @@
  "test": {
   "examples": 1492,
   "accuracy": 0.935,
-  "macro_f1": 0.8432,
+  "macro_f1": 0.9034,
   "weighted_f1": 0.9351,
   "per_class": {
    "30": {

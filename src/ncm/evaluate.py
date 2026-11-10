@@ -40,7 +40,11 @@ class Scores:
 
 def score(truth: list[str], predicted: list[str], labels: list[str]) -> Scores:
     """Scores over `labels`, the classes the dataset defines, so a class the model never
-    predicts still counts against macro-F1 instead of disappearing from it."""
+    predicts still counts against macro-F1 instead of disappearing from it.
+
+    A class with no examples in `truth` is left out of the averages: its F1 would be 0
+    for every model, whatever it predicts, which says nothing about the models and only
+    lowers all of them alike. Wrong predictions of it still cost recall elsewhere."""
     metrics: Any = precision_recall_fscore_support(truth, predicted, labels=labels, **ZERO)
     precision, recall, f1, support = metrics
     per_class = {
@@ -53,11 +57,12 @@ def score(truth: list[str], predicted: list[str], labels: list[str]) -> Scores:
         for label, p, r, f, s in zip(labels, precision, recall, f1, support, strict=True)
     }
     mistakes = Counter((t, p) for t, p in zip(truth, predicted, strict=True) if t != p)
+    present = [label for label in labels if label in set(truth)]
     return Scores(
         examples=len(truth),
         accuracy=float(accuracy_score(truth, predicted)),
-        macro_f1=float(f1_score(truth, predicted, labels=labels, average="macro", **ZERO)),
-        weighted_f1=float(f1_score(truth, predicted, labels=labels, average="weighted", **ZERO)),
+        macro_f1=float(f1_score(truth, predicted, labels=present, average="macro", **ZERO)),
+        weighted_f1=float(f1_score(truth, predicted, labels=present, average="weighted", **ZERO)),
         per_class=per_class,
         confusions=[(t, p, n) for (t, p), n in mistakes.most_common(10)],
     )
