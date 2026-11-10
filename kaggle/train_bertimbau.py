@@ -1,7 +1,7 @@
 """Fine-tune BERTimbau to predict the NCM chapter of an item description.
 
 Runs as a Kaggle notebook on a free T4 GPU (see kaggle/kernel-metadata.json), reading the
-splits from the classificador-ncm Kaggle dataset, and writes results/bertimbau.json in
+splits from the pncp-ncm-chapters Kaggle dataset, and writes results/bertimbau.json in
 the same format as every other model in the repository. The same file runs on a laptop
 CPU with a tiny model and a few hundred examples, as a smoke test:
 
@@ -18,6 +18,11 @@ import os
 import time
 from collections import Counter
 from pathlib import Path
+
+# Kaggle's GPU sessions have two T4s, and Trainer would split each batch across both,
+# doubling the effective batch size the learning rate and warm-up were set for. One GPU
+# keeps the run the same everywhere. Set before torch is imported.
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
 
 import numpy as np
 import pandas as pd
@@ -37,7 +42,7 @@ ZERO = {"zero_division": 0}
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="/kaggle/input/classificador-ncm")
+    parser.add_argument("--data", default="/kaggle/input/pncp-ncm-chapters")
     parser.add_argument("--model", default=BERTIMBAU)
     parser.add_argument("--out", default="/kaggle/working/results")
     parser.add_argument("--epochs", type=float, default=3)
@@ -46,6 +51,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-length", type=int, default=128)
     parser.add_argument("--limit", type=int, default=0, help="Use only this many examples.")
     parser.add_argument("--push", default="", help="Hugging Face repo to push the model to.")
+    parser.add_argument(
+        "--save-model", default="/kaggle/working/model", help="Where to save the best model."
+    )
     # Notebook runtimes pass their own arguments; ignore them.
     return parser.parse_known_args()[0]
 
@@ -100,6 +108,14 @@ class WeightedTrainer(Trainer):
 def main() -> None:
     args = parse_args()
     data = Path(args.data)
+    if not (data / "stats.json").exists():
+        # Kaggle mounts a dataset under a path that has changed between versions of the
+        # platform; look for it instead of guessing.
+        found = sorted(Path("/kaggle/input").rglob("stats.json"))
+        if not found:
+            raise SystemExit(f"no stats.json in {data} or under /kaggle/input")
+        data = found[0].parent
+    print("data:", data)
     splits = {n: pd.read_parquet(data / f"{n}.parquet") for n in ("train", "validation", "test")}
     if args.limit:
         splits = {n: f.sample(min(len(f), args.limit), random_state=0) for n, f in splits.items()}
@@ -198,6 +214,11 @@ def main() -> None:
     print(json.dumps({k: document[k] for k in ("model", "train_seconds")}))
     print("test macro-F1", document["test"]["macro_f1"], "accuracy", document["test"]["accuracy"])
 
+    if args.save_model:
+        # The best checkpoint, downloaded with `kaggle kernels output` and published from
+        # the laptop, so no Hugging Face token ever lives in the notebook.
+        trainer.save_model(args.save_model)
+        tokenizer.save_pretrained(args.save_model)
     if args.push:
         # HF_TOKEN comes from a Kaggle secret, never from the code.
         trainer.model.push_to_hub(args.push, token=os.environ["HF_TOKEN"])
