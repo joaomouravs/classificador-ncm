@@ -19,18 +19,26 @@ classical model, a fine-tuned transformer and an LLM with no training data at al
 any wording, in training. 14 chapters plus `outros`. Per-class scores and the most
 common confusions are in [results/REPORT.md](results/REPORT.md).
 
-| Model | Macro-F1 | Accuracy | Time per 1,000 items | Training data |
-| --- | --: | --: | --: | --- |
-| **TF-IDF character n-grams + logistic regression** | **0.903** | **0.935** | 2.5 s, laptop CPU | 10,515 descriptions |
-| Gemini 3.5 Flash-Lite, zero-shot | 0.611 | 0.757 | 131 s, API | none: the 96 chapter titles |
+| Model | Macro-F1 | Accuracy | Training | Time per 1,000 items |
+| --- | --: | --: | --- | --: |
+| **BERTimbau, fine-tuned** ([on Hugging Face](https://huggingface.co/joaovux/ncm-chapter-bertimbau)) | **0.914** | **0.949** | 3.6 min on a Kaggle T4 | 2.1 s, GPU |
+| TF-IDF character n-grams + logistic regression | 0.903 | 0.935 | about a minute on a laptop CPU | 0.5 s, CPU |
+| Gemini 3.5 Flash-Lite, zero-shot | 0.611 | 0.757 | none: the 96 chapter titles | 131 s, API |
 | Majority class | 0.036 | 0.337 | | |
 
 Macro-F1 is the headline: four chapters are 85% of the training data, and a model that
 only learned those would look fine on accuracy.
 
+- **Fine-tuning wins on accuracy, not clearly on macro-F1.** A paired bootstrap over the
+  test items puts BERTimbau's accuracy edge over TF-IDF at +1.4 points (95% interval
+  +0.2 to +2.7; McNemar p = 0.026: 51 items only BERTimbau gets right, 30 only TF-IDF),
+  but its macro-F1 edge at +1.0 points with an interval from −1.7 to +3.3. The small
+  chapters, 3 to 15 test examples each, are too few to tell the two apart, and on
+  validation TF-IDF is ahead (0.927 against 0.921).
 - **A classical baseline is hard to beat on catalogue text.** Item descriptions are
   catalogue entries full of units, part numbers and abbreviations, which character
-  n-grams handle without a tokenizer. The model trains in about a minute on a laptop.
+  n-grams handle without a tokenizer. TF-IDF gets within a point of a 110-million
+  parameter transformer, trains in a minute on a laptop and needs no GPU to serve.
 - **The LLM reads the material; the NCM reads the function.** Gemini's mistakes have a
   pattern. A plastic tongue depressor is a medical instrument (90), and it answered
   plastics (39) 26 times; a toner cartridge is a printer part (84), and it answered
@@ -42,9 +50,9 @@ only learned those would look fine on accuracy.
   items, most of them the chapter list repeated in every request, for 29 points less
   macro-F1. It is still what you get on day one with no labelled data.
 
-BERTimbau, a Portuguese BERT fine-tuned on a free GPU, is the next row
-([kaggle/train_bertimbau.py](kaggle/train_bertimbau.py)): does pretrained Portuguese
-help beyond character n-grams?
+BERTimbau trains with [kaggle/train_bertimbau.py](kaggle/train_bertimbau.py) as a Kaggle
+script on one T4 (`kaggle kernels push -p kaggle` with the dataset attached), and the
+same file smoke-tests on a laptop CPU with a tiny model.
 
 ## What the data taught me
 
@@ -92,7 +100,9 @@ collect ──> build ──> train / ask ──> score ──> report
   `outros` means. Answers are cached on disk; re-scoring calls nothing.
 - Every model writes the same JSON to `results/`, with its test predictions, and the
   report is built only from those files, whether the model ran on a laptop, on Kaggle
-  or behind an API.
+  or behind an API. The report also asks whether the best model beats the runner-up by
+  more than the test set's noise: a paired bootstrap over test items for both metrics,
+  and McNemar's exact test for accuracy.
 
 ## Running it
 
@@ -108,7 +118,9 @@ uv run ncm report
 ```
 
 `uv run ncm publish-dataset` uploads the splits to the Hugging Face Hub with a dataset
-card generated from the build's statistics (`HF_USERNAME` and `HF_TOKEN` in `.env`).
+card generated from the build's statistics, and `uv run ncm publish-model <dir>` the
+fine-tuned model downloaded from Kaggle, with a model card generated from `results/`
+(`HF_USERNAME` and `HF_TOKEN` in `.env`). Neither card has a number typed by hand.
 
 The design and its milestones are in [docs/design.md](docs/design.md).
 
