@@ -433,12 +433,18 @@ evaluation: [classificador-ncm](https://github.com/joaomouravs/classificador-ncm
 
 def publish_space(repo_id: str, token: str, files: dict[str, str]) -> str:
     """Create (or update) the public static Space with the generated files, in one
-    commit so it rebuilds once."""
-    from huggingface_hub import CommitOperationAdd, HfApi
+    commit so it rebuilds once. Anything else in the Space, such as the style.css the
+    Hub's static template starts with, is deleted, so the Space holds only this page."""
+    from huggingface_hub import CommitOperationAdd, CommitOperationDelete, HfApi
 
     api = HfApi(token=token)
     url = api.create_repo(repo_id, repo_type="space", space_sdk="static", exist_ok=True)
-    operations = [CommitOperationAdd(p, content.encode("utf-8")) for p, content in files.items()]
+    keep = {*files, ".gitattributes"}
+    stale = [f for f in api.list_repo_files(repo_id, repo_type="space") if f not in keep]
+    operations: list[CommitOperationAdd | CommitOperationDelete] = [
+        CommitOperationAdd(p, content.encode("utf-8")) for p, content in files.items()
+    ]
+    operations += [CommitOperationDelete(path_in_repo=f) for f in stale]
     api.create_commit(
         repo_id=repo_id, repo_type="space", operations=operations, commit_message="Deploy"
     )
