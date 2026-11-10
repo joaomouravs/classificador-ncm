@@ -186,6 +186,7 @@ def main() -> None:
         "ms_per_1000_items": round(1000 * test_seconds / max(1, len(test)) * 1000, 1),
         "validation": score(splits["validation"]["label"].tolist(), validation_predicted, labels),
         "test": score(splits["test"]["label"].tolist(), test_predicted, labels),
+        "test_predictions": test_predicted,
     }
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

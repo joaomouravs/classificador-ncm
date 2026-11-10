@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 import joblib
 import pandas as pd
 import typer
@@ -14,9 +15,11 @@ from ncm.baselines import majority, tfidf
 from ncm.build import build as build_splits
 from ncm.build import read_raw, write
 from ncm.collect import RAW, collect_day, days
+from ncm.evaluate import score
 from ncm.hub import DATASET_NAME, dataset_card, publish_dataset
+from ncm.llm import BATCH, MAX_CHARS, PROVIDERS, Classifier, sample_indices, to_label
 from ncm.pncp import PncpClient, new_http_client
-from ncm.results import RESULTS, build_report, record
+from ncm.results import RESULTS, build_report, record, save
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -126,5 +129,47 @@ def publish_dataset_command(
     stats = json.loads((DATASET / "stats.json").read_text(encoding="utf-8"))
     seen = pd.concat([frame["first_seen"] for frame in splits.values()]).astype(str)
     repo_id = f"{_env('HF_USERNAME')}/{name}"
-    card = dataset_card(stats, (seen.min(), seen.max()), repo_id)
+    card = dataset_card(stats, (str(seen.min()), str(seen.max())), repo_id)
     typer.echo(f"published {publish_dataset(DATASET, repo_id, _env('HF_TOKEN'), card)}")
+
+
+@app.command("zero-shot")
+def zero_shot(
+    model: Annotated[str, typer.Option(help="provider:name, e.g. gemini:gemini-3.5-flash-lite.")],
+    sample: Annotated[int, typer.Option(help="Test items to classify, chosen by hash.")] = 1000,
+) -> None:
+    """Classify a fixed sample of the test set with an LLM given only the chapter list."""
+    splits, classes = _splits()
+    test = splits["test"]
+    indices = sample_indices(test["text"].tolist(), sample)
+    texts = test["text"].iloc[indices].tolist()
+    truth = test["label"].iloc[indices].tolist()
+    provider = model.partition(":")[0]
+    key = _env(PROVIDERS[provider][1]) if provider in PROVIDERS else ""
+    with httpx.Client(timeout=120) as http:
+        classifier = Classifier(http, model, key, Path("data/llm-cache"))
+        chapters = classifier.classify(
+            texts, progress=lambda n: typer.echo(f"  {n}/{len(texts)}") if n % 250 == 0 else None
+        )
+    predicted = [to_label(c, classes) for c in chapters]
+    usage = classifier.usage
+    document = {
+        "model": f"{classifier.name}-zero-shot",
+        "params": {"base": model, "batch": BATCH, "max_chars": MAX_CHARS},
+        "unanswered": sum(c is None for c in chapters),
+        "tokens_per_1000_items": {
+            "in": round(1000 * usage.tokens_in / len(texts)),
+            "out": round(1000 * usage.tokens_out / len(texts)),
+        },
+        "ms_per_1000_items": round(1000 * sum(usage.latency_ms) / len(texts), 1),
+        "validation": None,
+        "test": score(truth, predicted, classes).as_dict(),
+        "test_predictions": predicted,
+        "sample": {"indices": indices, "labels": truth, "of": len(test)},
+    }
+    save(document)
+    typer.echo(
+        f"{document['model']}: {len(texts)} items, {usage.requests} requests "
+        f"({usage.cached} cached), {document['unanswered']} unanswered, "
+        f"macro-F1 {document['test']['macro_f1']:.3f}, accuracy {document['test']['accuracy']:.3f}"
+    )
