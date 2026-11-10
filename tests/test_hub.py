@@ -9,7 +9,9 @@ STATS = {
     "labelled_items": 300,
     "distinct_descriptions": 250,
     "repeated_descriptions": 40,
-    "conflicting_descriptions": 5,
+    "conflicting_descriptions": 0,
+    "labelled_with_catalog": 299,
+    "catalog_items": 200,
     "splits": {"train": 200, "validation": 20, "test": 30},
     "test_days": ["2026-10-23"],
     "classes": ["30", "85", "outros"],
@@ -37,3 +39,5 @@ def test_card_numbers_come_from_the_stats():
     # A class absent from a split shows zero instead of breaking the table.
     assert "| `outros` | Outros capítulos (poucos exemplos no treino) | 20 | 0 | 5 |" in card
     assert "from 2026-10-19 to 2026-10-23" in card
+    assert "(38% of the goods)" in card
+    assert "299 of the\n  300 labelled items carry a CATMAT code" in card

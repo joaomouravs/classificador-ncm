@@ -66,8 +66,9 @@ Item descriptions from Brazilian public tenders (*pregões eletrônicos*), each 
 with the chapter of its NCM code (Nomenclatura Comum do Mercosul, the first two digits:
 30 is pharmaceuticals, 85 electrical equipment, 90 optical and medical instruments).
 
-The descriptions and codes were written by the buying agencies themselves and published
-on the PNCP (Portal Nacional de Contratações Públicas). Built for
+The descriptions come from the PNCP (Portal Nacional de Contratações Públicas), as the
+buying agencies published them. The NCM codes come with the federal goods catalogue
+(CATMAT) entry each item was bought under. Built for
 [classificador-ncm](https://github.com/joaomouravs/classificador-ncm).
 
 ```python
@@ -83,6 +84,7 @@ ds = load_dataset("{repo_id}")
 | `text` | The item description, as the first tender that used it wrote it. |
 | `label` | An NCM chapter (`"30"`), or `"outros"` if it has under 50 training examples. |
 | `chapter` | The NCM chapter itself, also for rows labelled `outros`. |
+| `catalog_code` | The CATMAT code of the catalogue item; group rows by it in cross-validation. |
 | `occurrences` | How many collected items share this description. |
 | `first_seen` | The publication day of the first tender that used it. |
 
@@ -90,18 +92,23 @@ ds = load_dataset("{repo_id}")
 
 - **Source.** Every *pregão eletrônico* published nationwide from {first} to {last},
   and every item of each: {stats["items"]:,} items, {stats["material_items"]:,} of them
-  goods, {stats["labelled_items"]:,} with an NCM code.
-- **One row per description.** Agencies reuse the government catalogue's text, so the
-  same description appears in many tenders. Descriptions are compared after lowercasing,
-  removing accents and collapsing spaces; {stats["distinct_descriptions"]:,} remain, and
-  {stats["repeated_descriptions"]:,} of them appear more than once.
-- **Label.** The chapter most tenders gave the description. In
-  {stats["conflicting_descriptions"]:,} repeated descriptions the agencies disagreed on
-  the chapter, a lower bound on the label noise.
-- **Splits.** Test is every description first seen on the last day collected
-  ({test_days}): no test text ever appears in training, and the test set looks like the
-  tenders that come next. Validation is a stable 10% of the rest, chosen by a hash of
-  the description.
+  goods, and only {stats["labelled_items"]:,}
+  ({stats["labelled_items"] / stats["material_items"]:.0%} of the goods) with an NCM code.
+- **The label belongs to the catalogue.** {stats["labelled_with_catalog"]:,} of the
+  {stats["labelled_items"]:,} labelled items carry a CATMAT code, and a catalogue code
+  has the same NCM code in every tender that uses it. The NCM is not the buyer's choice:
+  it comes with the catalogue entry, which is why agencies never disagree on it
+  ({stats["conflicting_descriptions"]:,} conflicting descriptions).
+- **One row per description.** Descriptions are compared after lowercasing, removing
+  accents and collapsing spaces; {stats["distinct_descriptions"]:,} remain, from
+  {stats["catalog_items"]:,} catalogue items, and {stats["repeated_descriptions"]:,} of
+  them appear in more than one item.
+- **Splits by catalogue item.** Agencies reformat a catalogue item's text ("material:
+  aço inoxidável" against "Material:Aço Inoxidável"), so all the descriptions of one
+  catalogue item stay in the same split; split by text alone, a third of the test set
+  would have been catalogue items already in training. Test is every catalogue item
+  first seen on the last day collected ({test_days}), so it looks like the tenders that
+  come next. Validation is a stable 10% of the rest, chosen by a hash of the code.
 
 | Split | Rows |
 | --- | --: |
@@ -115,10 +122,12 @@ ds = load_dataset("{repo_id}")
 
 ## Limitations
 
-- **The labels are the agencies' own.** Buyers pick NCM codes by hand, and some are
-  wrong; a model's accuracy on this test set is bounded by that noise.
-- **Only a third of items carry a code.** Agencies that fill the field may describe
-  items differently from those that do not.
+- **Catalogue text, not free text.** Every labelled description is a catalogue entry,
+  more or less reformatted. Most goods are bought without a catalogue code, described in
+  the agency's own words, and those carry no NCM at all; a model trained here will do
+  worse on them than the test set says.
+- **The catalogue's mapping is taken as truth.** A CATMAT entry assigned to the wrong
+  NCM code would be wrong in every row that uses it.
 - **A short window.** {first} to {last}: seasonal purchases outside it are missing.
 
 ## License
