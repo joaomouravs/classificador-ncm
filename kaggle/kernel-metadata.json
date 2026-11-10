@@ -1,0 +1,18 @@
+{
+ "id": "joaovux/ncm-chapter-bertimbau",
+ "title": "NCM chapter BERTimbau",
+ "code_file": "train_bertimbau.py",
+ "language": "python",
+ "kernel_type": "script",
+ "is_private": "true",
+ "enable_gpu": "true",
+ "enable_tpu": "false",
+ "enable_internet": "true",
+ "machine_shape": "NvidiaTeslaT4",
+ "dataset_sources": [
+  "joaovux/pncp-ncm-chapters"
+ ],
+ "competition_sources": [],
+ "kernel_sources": [],
+ "model_sources": []
+}
