@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ncm.chapters import title
+from ncm.evaluate import Comparison, compare
 
 DATASET_NAME = "pncp-ncm-chapters"
 SPLITS = ("train", "validation", "test")
@@ -158,5 +159,147 @@ def publish_dataset(dataset_dir: Path, repo_id: str, token: str, card: str) -> s
         path_or_fileobj=dataset_dir / "README.md",
         path_in_repo="README.md",
         commit_message="Dataset card",
+    )
+    return str(url)
+
+
+MODEL_NAME = "ncm-chapter-bertimbau"
+
+
+def _versus(name: str, c: Comparison) -> str:
+    """One sentence on whether the gap to the runner-up is more than test-set noise."""
+
+    def verdict(metric: str, values: tuple[float, float, float]) -> str:
+        mean, low, high = (100 * v for v in values)
+        side = "a real edge" if low > 0 else ("a real gap" if high < 0 else "within noise")
+        return f"{metric} {mean:+.1f} points (95% interval {low:+.1f} to {high:+.1f}, {side})"
+
+    return (
+        f"Against {name}, a paired bootstrap over the test items gives "
+        f"{verdict('macro-F1', c.macro_f1)} and {verdict('accuracy', c.accuracy)}."
+    )
+
+
+def model_card(
+    result: dict[str, Any],
+    others: list[dict[str, Any]],
+    dataset_repo: str,
+    repo_id: str,
+    truth: list[str] | None = None,
+) -> str:
+    """The README.md of the model repository, from results/bertimbau.json and the other
+    models' results, so the card shows what the model is compared against. With the test
+    labels, it also says whether the gap to the best other model is more than noise."""
+    params = result["params"]
+    test = result["test"]
+    runner_up = max(
+        (d for d in others if truth and len(d.get("test_predictions", [])) == len(truth)),
+        key=lambda d: d["test"]["macro_f1"],
+        default=None,
+    )
+    versus = ""
+    if truth and runner_up:
+        gap = compare(truth, result["test_predictions"], runner_up["test_predictions"])
+        versus = _versus(runner_up["model"], gap)
+    header = "\n".join(
+        [
+            "---",
+            "language:",
+            "- pt",
+            "license: mit",
+            "library_name: transformers",
+            "pipeline_tag: text-classification",
+            f"base_model: {params['base']}",
+            "datasets:",
+            f"- {dataset_repo}",
+            "metrics:",
+            "- f1",
+            "- accuracy",
+            "tags:",
+            "- ncm",
+            "- public-procurement",
+            "- brazil",
+            "---",
+        ]
+    )
+    rows = "\n".join(
+        f"| {d['model']} | {d['test']['macro_f1']:.3f} | {d['test']['accuracy']:.3f} |"
+        for d in sorted([result, *others], key=lambda d: -d["test"]["macro_f1"])
+    )
+    classes = "\n".join(
+        f"| `{label}` | {title(label)} | {c['f1']:.2f} | {c['support']} |"
+        for label, c in test["per_class"].items()
+        if c["support"]
+    )
+    return f"""{header}
+
+# NCM chapter classifier (BERTimbau)
+
+Reads the description of a good bought by a Brazilian public body and predicts its NCM
+chapter (Nomenclatura Comum do Mercosul, the first two digits of the code): one of 14
+chapters, or `outros` for the rarer ones. Fine-tuned from
+[{params["base"]}](https://huggingface.co/{params["base"]}) on
+[{dataset_repo}](https://huggingface.co/datasets/{dataset_repo}). Code, evaluation and
+the comparison with other models:
+[classificador-ncm](https://github.com/joaomouravs/classificador-ncm).
+
+```python
+from transformers import pipeline
+
+classify = pipeline("text-classification", model="{repo_id}", top_k=3)
+classify("Seringa descartável 10 ml, bico luer lock, estéril")
+```
+
+## Results
+
+On the test set: {test["examples"]:,} descriptions of catalogue items first seen on the
+last day collected, none of them, in any wording, in training.
+
+| Model | Macro-F1 | Accuracy |
+| --- | --: | --: |
+{rows}
+
+{versus} Details in the
+[report](https://github.com/joaomouravs/classificador-ncm/blob/main/results/REPORT.md).
+
+| Label | Chapter | Test F1 | Test examples |
+| --- | --- | --: | --: |
+{classes}
+
+## Training
+
+{params["epochs"]:g} epochs, learning rate {params["lr"]:g}, batch {params["batch"]}, sequences
+cut at {params["max_length"]} tokens, class-weighted loss, best epoch chosen by validation
+macro-F1. {result["train_seconds"] / 60:.1f} minutes on one {result["hardware"]}.
+
+## Limitations
+
+- **Catalogue text only.** Every training description is a CATMAT catalogue entry. Most
+  goods are bought without one, described in the agency's own words, and the model will
+  do worse on them than the test set says.
+- **Chapter level only**, and only the 14 chapters with enough examples; everything else
+  is `outros`.
+- **The catalogue's NCM mapping is taken as truth**, including where it follows its own
+  convention (printer ink under printers, chapter 84).
+"""
+
+
+def publish_model(model_dir: Path, repo_id: str, token: str, card: str) -> str:
+    """Create (or update) the public model repository and upload weights and card."""
+    from huggingface_hub import HfApi
+
+    api = HfApi(token=token)
+    url = api.create_repo(repo_id, repo_type="model", exist_ok=True)
+    api.upload_folder(
+        repo_id=repo_id,
+        folder_path=model_dir,
+        allow_patterns=["config.json", "model.safetensors", "tokenizer*.json"],
+        commit_message="Upload fine-tuned model",
+    )
+    api.upload_file(
+        repo_id=repo_id,
+        path_or_fileobj=card.encode("utf-8"),
+        path_in_repo="README.md",
+        commit_message="Model card",
     )
     return str(url)

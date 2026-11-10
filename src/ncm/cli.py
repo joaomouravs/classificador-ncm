@@ -16,10 +16,17 @@ from ncm.build import build as build_splits
 from ncm.build import read_raw, write
 from ncm.collect import RAW, collect_day, days
 from ncm.evaluate import score
-from ncm.hub import DATASET_NAME, dataset_card, publish_dataset
+from ncm.hub import (
+    DATASET_NAME,
+    MODEL_NAME,
+    dataset_card,
+    model_card,
+    publish_dataset,
+    publish_model,
+)
 from ncm.llm import BATCH, MAX_CHARS, PROVIDERS, Classifier, sample_indices, to_label
 from ncm.pncp import PncpClient, new_http_client
-from ncm.results import RESULTS, build_report, record, save
+from ncm.results import LABELS_FILE, RESULTS, build_report, record, save
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -173,3 +180,22 @@ def zero_shot(
         f"({usage.cached} cached), {document['unanswered']} unanswered, "
         f"macro-F1 {document['test']['macro_f1']:.3f}, accuracy {document['test']['accuracy']:.3f}"
     )
+
+
+@app.command("publish-model")
+def publish_model_command(
+    model_dir: Annotated[Path, typer.Argument(help="The saved model, from the Kaggle output.")],
+    name: Annotated[str, typer.Option(help="Model name on the Hub.")] = MODEL_NAME,
+) -> None:
+    """Publish the fine-tuned model to the Hugging Face Hub, with a card from results/."""
+    result = json.loads((RESULTS / "bertimbau.json").read_text(encoding="utf-8"))
+    others = [
+        json.loads(p.read_text(encoding="utf-8"))
+        for p in sorted(RESULTS.glob("*.json"))
+        if p.name != "bertimbau.json"
+    ]
+    user = _env("HF_USERNAME")
+    repo_id = f"{user}/{name}"
+    truth = (RESULTS / LABELS_FILE).read_text(encoding="utf-8").split()
+    card = model_card(result, others, f"{user}/{DATASET_NAME}", repo_id, truth)
+    typer.echo(f"published {publish_model(model_dir, repo_id, _env('HF_TOKEN'), card)}")

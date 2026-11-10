@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from ncm.chapters import CHAPTERS, OTHER_TITLE, title
-from ncm.hub import dataset_card
+from ncm.evaluate import score
+from ncm.hub import dataset_card, model_card
 
 STATS = {
     "items": 1000,
@@ -41,3 +42,40 @@ def test_card_numbers_come_from_the_stats():
     assert "from 2026-10-19 to 2026-10-23" in card
     assert "(38% of the goods)" in card
     assert "299 of the\n  300 labelled items carry a CATMAT code" in card
+
+
+def _result(name, predictions, truth, classes):
+    return {
+        "model": name,
+        "params": {
+            "base": "neuralmind/bert-base-portuguese-cased",
+            "epochs": 3,
+            "lr": 3e-5,
+            "batch": 32,
+            "max_length": 128,
+        },
+        "train_seconds": 218.3,
+        "hardware": "Tesla T4",
+        "test": score(truth, predictions, classes).as_dict(),
+        "test_predictions": predictions,
+    }
+
+
+def test_model_card_compares_with_the_runner_up_from_the_results():
+    classes = ["30", "85", "outros"]
+    truth = ["30", "85"] * 100
+    model = _result("bertimbau", list(truth), truth, classes)
+    weaker = _result("tfidf-logreg", ["30"] * 200, truth, classes)
+    gemini = _result("gemini-zero-shot", ["85"] * 10, truth[:10], classes)  # a sample only
+
+    card = model_card(
+        model, [weaker, gemini], "u/pncp-ncm-chapters", "u/ncm-chapter-bertimbau", truth
+    )
+
+    assert "base_model: neuralmind/bert-base-portuguese-cased" in card
+    assert 'pipeline("text-classification", model="u/ncm-chapter-bertimbau"' in card
+    assert "Against tfidf-logreg, a paired bootstrap" in card
+    assert "a real edge" in card
+    assert "| `30` | Produtos farmacêuticos | 1.00 | 100 |" in card
+    assert not any(line.startswith("| `outros`") for line in card.splitlines())  # no examples
+    assert "3.6 minutes on one Tesla T4" in card
