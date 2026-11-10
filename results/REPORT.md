@@ -5,9 +5,42 @@ seen on the last collected day; see the dataset card for the splits.
 
 | Model | Test items | Test macro-F1 | Test accuracy | Validation macro-F1 | Time per 1,000 items |
 | --- | --: | --: | --: | --: | --: |
-| tfidf-logreg | 1,492 | 0.903 | 0.935 | 0.927 | 2.45s |
+| bertimbau | 1,492 | 0.914 | 0.949 | 0.921 | 2.07s |
+| tfidf-logreg | 1,492 | 0.903 | 0.935 | 0.927 | 0.53s |
 | gemini-3.5-flash-lite-zero-shot | 1,492 | 0.611 | 0.757 | n/a | 131.47s |
 | majority | 1,492 | 0.036 | 0.337 | 0.036 | 0.00s |
+
+## bertimbau against tfidf-logreg
+
+A paired bootstrap over the test items (2,000 resamples):
+
+- Macro-F1: +1.0 points (95% interval -1.7 to +3.3).
+- Accuracy: +1.4 points (95% interval +0.2 to +2.7).
+- 51 items only bertimbau gets right, 30 only tfidf-logreg; McNemar's exact test p = 0.026.
+
+An interval that includes zero means this test set cannot tell the two apart.
+
+## bertimbau
+
+| Chapter | Precision | Recall | F1 | Test examples |
+| --- | --: | --: | --: | --: |
+| 30 | 0.97 | 0.97 | 0.97 | 132 |
+| 38 | 1.00 | 0.80 | 0.89 | 15 |
+| 39 | 1.00 | 0.86 | 0.92 | 14 |
+| 40 | 0.00 | 0.00 | 0.00 | 0 |
+| 48 | 1.00 | 0.86 | 0.92 | 7 |
+| 61 | 0.67 | 1.00 | 0.80 | 4 |
+| 82 | 0.85 | 0.90 | 0.87 | 49 |
+| 83 | 0.84 | 0.95 | 0.89 | 43 |
+| 84 | 0.94 | 0.97 | 0.95 | 311 |
+| 85 | 0.97 | 0.92 | 0.94 | 282 |
+| 87 | 0.97 | 0.99 | 0.98 | 92 |
+| 90 | 0.97 | 0.96 | 0.97 | 503 |
+| 94 | 0.87 | 0.87 | 0.87 | 15 |
+| 96 | 1.00 | 1.00 | 1.00 | 3 |
+| outros | 0.82 | 0.82 | 0.82 | 22 |
+
+Most common mistakes: 85 as 84 (12), 85 as 90 (9), 90 as 85 (6), 84 as 90 (4), 90 as 84 (4).
 
 ## tfidf-logreg
 

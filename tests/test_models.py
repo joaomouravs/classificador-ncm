@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from ncm.baselines import majority, tfidf
-from ncm.evaluate import score
+from ncm.evaluate import compare, mcnemar, score
 from ncm.results import build_report, record
 
 LABELS = ["30", "40", "90", "outros"]
@@ -80,3 +80,36 @@ def test_results_and_report(splits, tmp_path):
     ]
     assert rows[0].startswith("| tfidf-logreg")  # best first
     assert "## majority" in report
+
+
+def test_mcnemar_exact():
+    assert mcnemar(0, 0) == 1.0
+    assert mcnemar(5, 5) == 1.0
+    # 30 against 51 overflowed numpy's integers; the exact value is about 0.026.
+    assert mcnemar(51, 30) == pytest.approx(0.0257, abs=1e-4)
+    assert mcnemar(10, 0) == pytest.approx(2 / 2**10)
+
+
+def test_compare_separates_a_real_gap_from_noise():
+    truth = ["30", "90"] * 200
+    good = list(truth)
+    noisy = [("90" if t == "30" else "30") if i % 5 == 0 else t for i, t in enumerate(truth)]
+
+    clear = compare(truth, good, noisy, rounds=300)
+    assert clear.only_a == 80 and clear.only_b == 0
+    assert clear.accuracy[1] > 0  # the whole interval is above zero
+    assert clear.mcnemar_p < 0.001
+
+    same = compare(truth, good, list(good), rounds=300)
+    assert same.macro_f1 == (0.0, 0.0, 0.0)
+    assert same.mcnemar_p == 1.0
+
+
+def test_report_compares_the_two_best(splits, tmp_path):
+    model = tfidf(splits["train"], splits["validation"], LABELS)
+    record("tfidf-logreg", model.predict, splits, LABELS, {"params": model.params}, tmp_path)
+    record("majority", majority(splits["train"]).predict, splits, LABELS, {}, tmp_path)
+
+    report = build_report(tmp_path)
+    assert "## tfidf-logreg against majority" in report
+    assert "McNemar's exact test p = 0.000" in report

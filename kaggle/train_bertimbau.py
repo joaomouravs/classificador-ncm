@@ -15,6 +15,7 @@ import argparse
 import json
 import math
 import os
+import tempfile
 import time
 from collections import Counter
 from pathlib import Path
@@ -155,7 +156,9 @@ def main() -> None:
     trainer = WeightedTrainer(
         model=model,
         args=TrainingArguments(
-            output_dir="checkpoints",
+            # Outside /kaggle/working, the notebook's downloadable output: the optimizer
+            # state alone is 870 MB.
+            output_dir=str(Path(tempfile.gettempdir()) / "ncm-checkpoints"),
             num_train_epochs=args.epochs,
             learning_rate=args.lr,
             per_device_train_batch_size=args.batch,

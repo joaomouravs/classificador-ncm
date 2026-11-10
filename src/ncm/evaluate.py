@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+from math import comb
 from typing import Any
 
+import numpy as np
 from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_support
 
 # A class with no predictions scores 0, not a warning. (Passed through a dict typed Any:
@@ -66,3 +68,54 @@ def score(truth: list[str], predicted: list[str], labels: list[str]) -> Scores:
         per_class=per_class,
         confusions=[(t, p, n) for (t, p), n in mistakes.most_common(10)],
     )
+
+
+@dataclass
+class Comparison:
+    """Model a against model b on the same test items."""
+
+    macro_f1: tuple[float, float, float]  # difference a - b, and its 95% interval
+    accuracy: tuple[float, float, float]
+    only_a: int  # items only a gets right
+    only_b: int
+    mcnemar_p: float
+
+
+def compare(
+    truth: list[str], a: list[str], b: list[str], rounds: int = 2000, seed: int = 0
+) -> Comparison:
+    """Whether a beats b by more than the test set's sampling noise.
+
+    A paired bootstrap resamples test items, scores both models on the same resample and
+    keeps the differences, so the interval reflects how much the gap would move on
+    another test set like this one. McNemar's exact test asks the same of accuracy
+    using only the items where exactly one model is right.
+    """
+    rng = np.random.default_rng(seed)
+    y, pa, pb = np.array(truth), np.array(a), np.array(b)
+    macro, accuracy = [], []
+    for _ in range(rounds):
+        i = rng.integers(0, len(y), len(y))
+        labels = sorted(set(y[i]))
+        macro.append(
+            f1_score(y[i], pa[i], labels=labels, average="macro", **ZERO)
+            - f1_score(y[i], pb[i], labels=labels, average="macro", **ZERO)
+        )
+        accuracy.append(float((pa[i] == y[i]).mean() - (pb[i] == y[i]).mean()))
+
+    def interval(values: list[float]) -> tuple[float, float, float]:
+        low, high = np.percentile(values, [2.5, 97.5])
+        return float(np.mean(values)), float(low), float(high)
+
+    only_a = int(((pa == y) & (pb != y)).sum())
+    only_b = int(((pb == y) & (pa != y)).sum())
+    return Comparison(interval(macro), interval(accuracy), only_a, only_b, mcnemar(only_a, only_b))
+
+
+def mcnemar(only_a: int, only_b: int) -> float:
+    """Exact two-sided McNemar p-value, with Python integers: 2**n overflows numpy's."""
+    n = only_a + only_b
+    if n == 0:
+        return 1.0
+    tail = sum(comb(n, k) for k in range(min(only_a, only_b) + 1))
+    return min(1.0, 2 * tail / 2**n)

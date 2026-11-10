@@ -3,8 +3,8 @@
  "params": {
   "C": 16.0
  },
- "train_seconds": 87.9,
- "ms_per_1000_items": 2448.4,
+ "train_seconds": 25.2,
+ "ms_per_1000_items": 532.3,
  "validation": {
   "examples": 1218,
   "accuracy": 0.9573,

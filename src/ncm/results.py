@@ -16,9 +16,10 @@ from typing import Any
 
 import pandas as pd
 
-from ncm.evaluate import score
+from ncm.evaluate import compare, score
 
 RESULTS = Path("results")
+LABELS_FILE = "test_labels.txt"
 
 
 def record(
@@ -46,6 +47,11 @@ def record(
         "test_predictions": predicted,
     }
     save(document, results)
+    # The truth the report compares models against, one label per line, so the report
+    # needs nothing but this folder.
+    (results / LABELS_FILE).write_text(
+        "".join(f"{label}\n" for label in splits["test"]["label"]), encoding="utf-8"
+    )
     return document
 
 
@@ -84,6 +90,37 @@ def _on_sample(documents: list[dict[str, Any]], labels: list[str]) -> list[str]:
     ]
 
 
+def _best_two(documents: list[dict[str, Any]], results: Path) -> list[str]:
+    """Is the best model better than the runner-up, or only luckier on this test set?"""
+    path = results / LABELS_FILE
+    if not path.exists():
+        return []
+    truth = path.read_text(encoding="utf-8").split()
+    full = [d for d in documents if len(d.get("test_predictions", [])) == len(truth)]
+    if len(full) < 2:
+        return []
+    a, b = full[0], full[1]
+    c = compare(truth, a["test_predictions"], b["test_predictions"])
+
+    def points(values: tuple[float, float, float]) -> str:
+        mean, low, high = (100 * v for v in values)
+        return f"{mean:+.1f} points (95% interval {low:+.1f} to {high:+.1f})"
+
+    return [
+        "",
+        f"## {a['model']} against {b['model']}",
+        "",
+        "A paired bootstrap over the test items (2,000 resamples):",
+        "",
+        f"- Macro-F1: {points(c.macro_f1)}.",
+        f"- Accuracy: {points(c.accuracy)}.",
+        f"- {c.only_a} items only {a['model']} gets right, {c.only_b} only {b['model']}; "
+        f"McNemar's exact test p = {c.mcnemar_p:.3f}.",
+        "",
+        "An interval that includes zero means this test set cannot tell the two apart.",
+    ]
+
+
 def build_report(results: Path = RESULTS) -> str:
     documents = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(results.glob("*.json"))]
     documents.sort(key=lambda d: -d["test"]["macro_f1"])
@@ -106,6 +143,7 @@ def build_report(results: Path = RESULTS) -> str:
             f"| {d['ms_per_1000_items'] / 1000:.2f}s |"
         )
     lines += _on_sample(documents, labels)
+    lines += _best_two(documents, results)
     for d in documents:
         lines += [
             "",
